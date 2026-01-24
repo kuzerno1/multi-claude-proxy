@@ -50,6 +50,13 @@ const (
 	GeminiSignatureCacheTTL = 2 * time.Hour
 )
 
+// Image generation constants
+const (
+	DefaultImageModel = "gemini-3-pro-image"
+	MaxImageCount     = 4
+	DefaultImageCount = 1
+)
+
 // OAuth configuration
 const (
 	OAuthCallbackPort = 51121

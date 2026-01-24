@@ -50,6 +50,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/v1/messages", s.handleMessages)
 	mux.HandleFunc("/v1/messages/count_tokens", s.handleCountTokens)
 	mux.HandleFunc("/v1/models", s.handleModels)
+	mux.HandleFunc("/v1/images/generate", s.handleImageGenerate)
 	mux.HandleFunc("/health", s.handleHealth)
 	mux.HandleFunc("/account-limits", s.handleAccountLimits)
 	mux.HandleFunc("/refresh-token", s.handleRefreshToken)
@@ -689,6 +690,92 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 	}); err != nil {
 		utils.Debug("[API] Failed to encode models response: %v", err)
 	}
+}
+
+// handleImageGenerate handles POST /v1/images/generate requests.
+func (s *Server) handleImageGenerate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		s.handleNotFound(w, r)
+		return
+	}
+
+	// Apply request body size limit
+	r.Body = http.MaxBytesReader(w, r.Body, config.RequestBodyLimit)
+
+	// Read request body
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		if err.Error() == "http: request body too large" {
+			writeError(w, http.StatusRequestEntityTooLarge, "invalid_request_error",
+				fmt.Sprintf("Request body too large (max %d bytes)", config.RequestBodyLimit))
+			return
+		}
+		writeError(w, http.StatusBadRequest, "invalid_request_error", "Failed to read request body")
+		return
+	}
+	defer r.Body.Close()
+
+	// Parse request
+	req, err := parseImageGenerationRequest(body)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_request_error", fmt.Sprintf("Invalid JSON: %v", err))
+		return
+	}
+
+	// Validate prompt
+	if req.Prompt == "" {
+		writeError(w, http.StatusBadRequest, "invalid_request_error", "prompt is required")
+		return
+	}
+
+	// Get antigravity provider
+	if s.registry == nil {
+		writeError(w, http.StatusInternalServerError, "api_error", "Image generation provider not available")
+		return
+	}
+	prov, ok := s.registry.GetByName("antigravity")
+	if !ok || prov == nil {
+		writeError(w, http.StatusInternalServerError, "api_error", "Image generation provider not available")
+		return
+	}
+
+	// Type assert to access GenerateImage method
+	agProvider, ok := prov.(*antigravity.Provider)
+	if !ok {
+		writeError(w, http.StatusInternalServerError, "api_error", "Image generation provider not available")
+		return
+	}
+
+	ctx := r.Context()
+	resp, err := agProvider.GenerateImage(ctx, req)
+	if err != nil {
+		ae := merrors.FromError(err)
+		writeError(w, ae.StatusCode(), string(ae.Detail.Type), ae.Detail.Message)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}
+
+func parseImageGenerationRequest(body []byte) (*types.ImageGenerationRequest, error) {
+	var req types.ImageGenerationRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, err
+	}
+
+	// Apply defaults
+	if req.Model == "" {
+		req.Model = config.DefaultImageModel
+	}
+	if req.Count <= 0 {
+		req.Count = config.DefaultImageCount
+	}
+	if req.Count > config.MaxImageCount {
+		req.Count = config.MaxImageCount
+	}
+
+	return &req, nil
 }
 
 // handleHealth handles GET /health requests.

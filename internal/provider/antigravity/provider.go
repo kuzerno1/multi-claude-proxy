@@ -608,6 +608,140 @@ AttemptLoop:
 	return nil, fmt.Errorf("Max retries exceeded")
 }
 
+// GenerateImage generates images from text prompts.
+func (p *Provider) GenerateImage(ctx context.Context, req *types.ImageGenerationRequest) (*types.ImageGenerationResponse, error) {
+	model := req.Model
+
+	// Retry loop with account failover (same pattern as SendMessage)
+	maxAttempts := config.MaxRetries
+	if accountCount := p.accountManager.GetAccountCountByProvider("antigravity") + 1; accountCount > maxAttempts {
+		maxAttempts = accountCount
+	}
+
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		acc := p.accountManager.PickNextByProvider("antigravity", model)
+
+		// Handle all accounts rate-limited
+		if acc == nil && p.accountManager.IsAllRateLimitedByProvider("antigravity", model) {
+			allWaitMs := p.accountManager.GetMinWaitTimeMsByProvider("antigravity", model)
+			waitDur := time.Duration(allWaitMs) * time.Millisecond
+			resetTime := time.Now().Add(waitDur).UTC().Format("2006-01-02T15:04:05.000Z")
+
+			if waitDur > config.MaxWaitBeforeError {
+				return nil, fmt.Errorf(
+					"RESOURCE_EXHAUSTED: Rate limited on %s. Quota will reset after %s. Next available: %s",
+					model,
+					utils.FormatDuration(waitDur),
+					resetTime,
+				)
+			}
+
+			accountCount := p.accountManager.GetAccountCountByProvider("antigravity")
+			utils.Warn("[Antigravity] All %d account(s) rate-limited for image generation. Waiting %s...",
+				accountCount,
+				utils.FormatDuration(waitDur),
+			)
+
+			if err := sleepWithContext(ctx, waitDur); err != nil {
+				return nil, err
+			}
+			if err := sleepWithContext(ctx, config.PostRateLimitBuffer); err != nil {
+				return nil, err
+			}
+			p.accountManager.ClearExpiredLimits()
+			acc = p.accountManager.PickNextByProvider("antigravity", model)
+
+			if acc == nil {
+				utils.Warn("[Antigravity] No account available after wait, attempting optimistic reset...")
+				p.accountManager.ResetAllRateLimitsByProvider("antigravity")
+				acc = p.accountManager.PickNextByProvider("antigravity", model)
+			}
+		}
+
+		if acc == nil {
+			return nil, fmt.Errorf("No accounts available for image generation")
+		}
+
+		// Get token
+		token, err := p.accountManager.GetTokenForAccount(acc)
+		if err != nil {
+			if isAuthError(err) {
+				utils.Warn("[Antigravity] Account %s has invalid credentials, trying next...", acc.Email)
+				continue
+			}
+			if isNetworkError(err) {
+				utils.Warn("[Antigravity] Network error for %s, trying next... (%v)", acc.Email, err)
+				if err := sleepWithContext(ctx, config.NetworkRetryDelay); err != nil {
+					return nil, err
+				}
+				p.accountManager.PickNextByProvider("antigravity", model)
+				continue
+			}
+			return nil, fmt.Errorf("failed to get token: %w", err)
+		}
+
+		// Get project ID
+		projectID, err := p.accountManager.GetProjectForAccount(acc, token)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get project: %w", err)
+		}
+
+		// Build request payload
+		payload := ConvertImageRequestToGoogle(req, projectID)
+
+		// Send request (non-streaming for image generation)
+		resp, err := p.client.DoRequest(ctx, RequestOptions{
+			Token:     token,
+			ProjectID: projectID,
+			Model:     model,
+			Payload:   payload,
+			Stream:    false,
+		})
+
+		if err != nil {
+			var rateLimitErr *RateLimitError
+			if errors.As(err, &rateLimitErr) {
+				p.accountManager.MarkRateLimited(acc.Email, rateLimitErr.ResetMs, model)
+				utils.Info("[Antigravity] Account %s rate-limited for image generation, trying next...", acc.Email)
+				continue
+			}
+
+			if isHTTPStatus(err, http.StatusUnauthorized) {
+				utils.Warn("[Antigravity] Auth error for %s, refreshing token...", acc.Email)
+				p.accountManager.ClearTokenCache(acc.Email)
+				p.accountManager.ClearProjectCache(acc.Email)
+				continue
+			}
+
+			if status, ok := getHTTPStatus(err); ok && status >= 500 {
+				utils.Warn("[Antigravity] Account %s failed with %d error, trying next...", acc.Email, status)
+				p.accountManager.PickNextByProvider("antigravity", model)
+				continue
+			}
+
+			if isNetworkError(err) {
+				utils.Warn("[Antigravity] Network error for %s, trying next... (%v)", acc.Email, err)
+				if err := sleepWithContext(ctx, config.NetworkRetryDelay); err != nil {
+					return nil, err
+				}
+				p.accountManager.PickNextByProvider("antigravity", model)
+				continue
+			}
+
+			return nil, err
+		}
+
+		// Parse JSON response
+		if resp.Data != nil {
+			return ConvertGoogleImageResponse(resp.Data, model)
+		}
+
+		return nil, fmt.Errorf("empty response from image generation API")
+	}
+
+	return nil, fmt.Errorf("Max retries exceeded for image generation")
+}
+
 func sleepWithContext(ctx context.Context, d time.Duration) error {
 	if d <= 0 {
 		return nil

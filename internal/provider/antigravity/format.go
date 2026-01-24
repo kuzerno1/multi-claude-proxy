@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"strings"
 
 	"github.com/kuzerno1/multi-claude-proxy/internal/config"
@@ -805,4 +806,116 @@ func joinStrings(strs []string, sep string) string {
 		result += sep + strs[i]
 	}
 	return result
+}
+
+// ConvertImageRequestToGoogle converts an image generation request to Google format.
+func ConvertImageRequestToGoogle(req *types.ImageGenerationRequest, projectID string) map[string]interface{} {
+	contents := []interface{}{
+		map[string]interface{}{
+			"role": "user",
+			"parts": []interface{}{
+				map[string]interface{}{"text": req.Prompt},
+			},
+		},
+	}
+
+	// Add input image for editing if provided
+	if req.InputImage != "" {
+		parts := contents[0].(map[string]interface{})["parts"].([]interface{})
+		parts = append(parts, map[string]interface{}{
+			"inlineData": map[string]interface{}{
+				"mimeType": "image/png",
+				"data":     req.InputImage,
+			},
+		})
+		contents[0].(map[string]interface{})["parts"] = parts
+	}
+
+	googleReq := map[string]interface{}{
+		"contents":         contents,
+		"generationConfig": map[string]interface{}{},
+	}
+
+	// Add aspect ratio if specified
+	if req.AspectRatio != "" {
+		googleReq["generationConfig"].(map[string]interface{})["aspectRatio"] = req.AspectRatio
+	}
+
+	// Add count if specified
+	if req.Count > 0 {
+		googleReq["generationConfig"].(map[string]interface{})["numberOfImages"] = req.Count
+	}
+
+	payload := map[string]interface{}{
+		"project":     projectID,
+		"model":       req.Model,
+		"request":     googleReq,
+		"userAgent":   "antigravity",
+		"requestType": "agent",
+		"requestId":   "agent-" + generateMessageID()[4:], // Reuse generateMessageID but strip "msg_" prefix
+	}
+
+	// Add session ID for character consistency if provided
+	if req.SessionID != "" {
+		payload["sessionId"] = req.SessionID
+	}
+
+	return payload
+}
+
+// ConvertGoogleImageResponse converts a Google image generation response to our format.
+func ConvertGoogleImageResponse(googleResp map[string]interface{}, model string) (*types.ImageGenerationResponse, error) {
+	response := googleResp
+	if inner, ok := googleResp["response"].(map[string]interface{}); ok {
+		response = inner
+	}
+
+	candidates, _ := response["candidates"].([]interface{})
+	if len(candidates) == 0 {
+		return nil, fmt.Errorf("no candidates in image response")
+	}
+
+	images := make([]types.GeneratedImage, 0)
+
+	for candidateIdx, c := range candidates {
+		candidate, ok := c.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		content, _ := candidate["content"].(map[string]interface{})
+		parts, _ := content["parts"].([]interface{})
+
+		for _, p := range parts {
+			part, ok := p.(map[string]interface{})
+			if !ok {
+				continue
+			}
+
+			// Check for inlineData (base64 image)
+			if inlineData, ok := part["inlineData"].(map[string]interface{}); ok {
+				mimeType, _ := inlineData["mimeType"].(string)
+				data, _ := inlineData["data"].(string)
+
+				if mimeType != "" && data != "" {
+					images = append(images, types.GeneratedImage{
+						Index:     candidateIdx,
+						MediaType: mimeType,
+						Data:      data,
+					})
+				}
+			}
+		}
+	}
+
+	if len(images) == 0 {
+		return nil, fmt.Errorf("no images found in response")
+	}
+
+	return &types.ImageGenerationResponse{
+		ID:     generateMessageID(),
+		Type:   "image_generation",
+		Model:  model,
+		Images: images,
+	}, nil
 }

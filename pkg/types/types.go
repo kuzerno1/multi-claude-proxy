@@ -202,6 +202,31 @@ type ModelInfo struct {
 	MaxOutputTokens int    `json:"max_output_tokens,omitempty"`
 }
 
+// ImageGenerationRequest represents an image generation request.
+type ImageGenerationRequest struct {
+	Prompt      string `json:"prompt"`                 // Required: text prompt for image generation
+	Model       string `json:"model,omitempty"`        // Optional: defaults to gemini-3-pro-image
+	AspectRatio string `json:"aspect_ratio,omitempty"` // Optional: 1:1, 16:9, 9:16, 4:3, 3:4
+	Count       int    `json:"count,omitempty"`        // Optional: 1-4, default 1
+	InputImage  string `json:"input_image,omitempty"`  // Optional: base64 image for editing
+	SessionID   string `json:"session_id,omitempty"`   // Optional: for character consistency
+}
+
+// ImageGenerationResponse represents an image generation response.
+type ImageGenerationResponse struct {
+	ID     string         `json:"id"`
+	Type   string         `json:"type"`  // Always "image_generation"
+	Model  string         `json:"model"`
+	Images []GeneratedImage `json:"images"`
+}
+
+// GeneratedImage represents a single generated image.
+type GeneratedImage struct {
+	Index     int    `json:"index"`
+	MediaType string `json:"media_type"` // e.g., "image/png"
+	Data      string `json:"data"`       // base64-encoded image data
+}
+
 // ProviderStatus represents health and quota information for a provider.
 type ProviderStatus struct {
 	Name      string          `json:"name"`
