@@ -831,19 +831,27 @@ func ConvertImageRequestToGoogle(req *types.ImageGenerationRequest, projectID st
 		contents[0].(map[string]interface{})["parts"] = parts
 	}
 
-	googleReq := map[string]interface{}{
-		"contents":         contents,
-		"generationConfig": map[string]interface{}{},
+	generationConfig := map[string]interface{}{
+		"responseModalities": []string{"IMAGE"},
 	}
 
-	// Add aspect ratio if specified
+	// Add image config with aspect ratio if specified
+	imageConfig := map[string]interface{}{}
 	if req.AspectRatio != "" {
-		googleReq["generationConfig"].(map[string]interface{})["aspectRatio"] = req.AspectRatio
+		imageConfig["aspectRatio"] = req.AspectRatio
+	}
+	if len(imageConfig) > 0 {
+		generationConfig["imageConfig"] = imageConfig
 	}
 
 	// Add count if specified
 	if req.Count > 0 {
-		googleReq["generationConfig"].(map[string]interface{})["numberOfImages"] = req.Count
+		generationConfig["candidateCount"] = req.Count
+	}
+
+	googleReq := map[string]interface{}{
+		"contents":         contents,
+		"generationConfig": generationConfig,
 	}
 
 	payload := map[string]interface{}{
