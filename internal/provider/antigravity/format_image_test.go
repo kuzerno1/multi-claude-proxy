@@ -50,6 +50,13 @@ func TestConvertImageRequestToGoogle(t *testing.T) {
 		if firstPart["text"] != "a sunset over mountains" {
 			t.Errorf("expected prompt text, got %v", firstPart["text"])
 		}
+
+		// Check generationConfig has responseModalities
+		genConfig := googleReq["generationConfig"].(map[string]interface{})
+		modalities, ok := genConfig["responseModalities"].([]string)
+		if !ok || len(modalities) != 1 || modalities[0] != "IMAGE" {
+			t.Errorf("expected responseModalities [\"IMAGE\"], got %v", genConfig["responseModalities"])
+		}
 	})
 
 	t.Run("with aspect ratio", func(t *testing.T) {
@@ -64,8 +71,20 @@ func TestConvertImageRequestToGoogle(t *testing.T) {
 
 		googleReq := result["request"].(map[string]interface{})
 		genConfig := googleReq["generationConfig"].(map[string]interface{})
-		if genConfig["aspectRatio"] != "16:9" {
-			t.Errorf("expected aspectRatio '16:9', got %v", genConfig["aspectRatio"])
+
+		// Check responseModalities
+		modalities, ok := genConfig["responseModalities"].([]string)
+		if !ok || len(modalities) != 1 || modalities[0] != "IMAGE" {
+			t.Errorf("expected responseModalities [\"IMAGE\"], got %v", genConfig["responseModalities"])
+		}
+
+		// Check imageConfig
+		imageConfig, ok := genConfig["imageConfig"].(map[string]interface{})
+		if !ok {
+			t.Fatalf("expected imageConfig in generationConfig")
+		}
+		if imageConfig["aspectRatio"] != "16:9" {
+			t.Errorf("expected aspectRatio '16:9', got %v", imageConfig["aspectRatio"])
 		}
 	})
 
@@ -80,8 +99,8 @@ func TestConvertImageRequestToGoogle(t *testing.T) {
 
 		googleReq := result["request"].(map[string]interface{})
 		genConfig := googleReq["generationConfig"].(map[string]interface{})
-		if genConfig["numberOfImages"] != 4 {
-			t.Errorf("expected numberOfImages 4, got %v", genConfig["numberOfImages"])
+		if genConfig["candidateCount"] != 4 {
+			t.Errorf("expected candidateCount 4, got %v", genConfig["candidateCount"])
 		}
 	})
 

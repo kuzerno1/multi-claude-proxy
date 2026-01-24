@@ -195,10 +195,14 @@ func IsThinkingModel(modelName string) bool {
 		return true
 	}
 
-	// Gemini thinking models: explicit "thinking" in name, OR gemini version 3+
+	// Gemini thinking models: explicit "thinking" in name, OR gemini version 3+ (excluding image models)
 	if strings.Contains(lower, "gemini") {
 		if strings.Contains(lower, "thinking") {
 			return true
+		}
+		// Image models are not thinking models
+		if strings.Contains(lower, "image") {
+			return false
 		}
 		// Check for gemini-3 or higher (e.g., gemini-3, gemini-3.5, gemini-4, etc.)
 		matches := geminiVersionRegex.FindStringSubmatch(lower)
