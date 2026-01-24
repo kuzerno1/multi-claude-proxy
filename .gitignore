@@ -1,0 +1,40 @@
+# Binaries
+multi-claude-proxy
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool
+*.out
+coverage.html
+
+# Go workspace file
+go.work
+go.work.sum
+
+# Dependency directories (remove if vendoring)
+vendor/
+
+# Debug files
+*.pprof
+__debug_bin*
+
+# IDE and editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Local configuration (may contain tokens)
+.env
+.env.local

@@ -1,0 +1,45 @@
+services:
+  multi-claude-proxy:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ghcr.io/kuzerno1/multi-claude-proxy:latest
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./accounts.json:/config/accounts.json:ro
+    environment:
+      # Required - server won't start without this
+      - PROXY_API_KEY=${PROXY_API_KEY:?PROXY_API_KEY is required}
+
+      # Optional - for OAuth accounts (Antigravity provider)
+      # Defaults to hardcoded values if not set
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET:-}
+
+      # Optional configuration
+      - PORT=8080
+      - BIND_ADDRESS=0.0.0.0
+      - DEBUG=${DEBUG:-false}
+      - ACCOUNTS_CONFIG_PATH=/config/accounts.json
+
+      # Feature flags
+      - ENABLE_FALLBACK=${ENABLE_FALLBACK:-false}
+      - SOFT_LIMIT_THRESHOLD=${SOFT_LIMIT_THRESHOLD:-0.20}
+
+      # CORS configuration
+      # Security: Set CORS_ALLOW_ORIGIN to specific origins in production
+      - CORS_ENABLED=${CORS_ENABLED:-true}
+      - CORS_ALLOW_ORIGIN=${CORS_ALLOW_ORIGIN:-*}
+
+      # Timeouts (in seconds)
+      - READ_TIMEOUT_SEC=${READ_TIMEOUT_SEC:-30}
+      - WRITE_TIMEOUT_SEC=${WRITE_TIMEOUT_SEC:-300}
+      - IDLE_TIMEOUT_SEC=${IDLE_TIMEOUT_SEC:-120}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s

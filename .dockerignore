@@ -1,0 +1,36 @@
+# Git
+.git
+.gitignore
+
+# Development files
+.ai
+*.md
+!README.md
+
+# IDE
+.idea
+.vscode
+*.swp
+*.swo
+
+# Build artifacts
+multi-claude-proxy
+*.exe
+*.out
+
+# Test files
+*_test.go
+testdata/
+
+# CI/CD
+.github
+
+# Docker
+Dockerfile
+.dockerignore
+docker-compose.yml
+docker-compose*.yml
+
+# OS files
+.DS_Store
+Thumbs.db
