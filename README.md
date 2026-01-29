@@ -236,16 +236,14 @@ The included `docker-compose.yml` mounts your local `accounts.json` and supports
 services:
   multi-claude-proxy:
     image: ghcr.io/kuzerno1/multi-claude-proxy:latest
+    user: "1000:1000"
     ports:
       - "8080:8080"
     volumes:
-      - ./accounts.json:/config/accounts.json:ro
+      - ./config:/config
     environment:
       - PROXY_API_KEY=${PROXY_API_KEY:?PROXY_API_KEY is required}
       - ACCOUNTS_CONFIG_PATH=/config/accounts.json
-      - DEBUG=${DEBUG:-false}
-      - ENABLE_FALLBACK=${ENABLE_FALLBACK:-false}
-      - SOFT_LIMIT_THRESHOLD=${SOFT_LIMIT_THRESHOLD:-0.20}
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "--spider", "http://localhost:8080/health"]
@@ -265,7 +263,8 @@ docker build -t multi-claude-proxy .
 ```bash
 docker run -d \
   -p 8080:8080 \
-  -v ~/.config/multi-claude-proxy/accounts.json:/config/accounts.json:ro \
+  --user 1000:1000 \
+  -v ./config:/config \
   -e PROXY_API_KEY="your-secret-key" \
   -e ACCOUNTS_CONFIG_PATH=/config/accounts.json \
   multi-claude-proxy

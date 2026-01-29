@@ -51,6 +51,10 @@ func (m *mockProvider) GetStatus(ctx context.Context) (*types.ProviderStatus, er
 	return nil, nil
 }
 
+func (m *mockProvider) GenerateImage(ctx context.Context, req *types.ImageGenerationRequest) (*types.ImageGenerationResponse, error) {
+	return nil, nil
+}
+
 func (m *mockProvider) Initialize(ctx context.Context) error { return nil }
 
 func (m *mockProvider) Shutdown(ctx context.Context) error { return nil }

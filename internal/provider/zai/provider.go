@@ -428,6 +428,11 @@ func (p *Provider) GetStatus(ctx context.Context) (*types.ProviderStatus, error)
 	}, nil
 }
 
+// GenerateImage is not supported by Z.AI provider.
+func (p *Provider) GenerateImage(ctx context.Context, req *types.ImageGenerationRequest) (*types.ImageGenerationResponse, error) {
+	return nil, fmt.Errorf("image generation is not supported by Z.AI provider")
+}
+
 func sleepWithContext(ctx context.Context, d time.Duration) error {
 	if d <= 0 {
 		return nil

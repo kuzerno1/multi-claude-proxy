@@ -36,6 +36,10 @@ type Provider interface {
 	// GetStatus returns provider health and quota information.
 	GetStatus(ctx context.Context) (*types.ProviderStatus, error)
 
+	// GenerateImage generates images from text prompts.
+	// Returns generated images in base64 format.
+	GenerateImage(ctx context.Context, req *types.ImageGenerationRequest) (*types.ImageGenerationResponse, error)
+
 	// Initialize performs any setup required by the provider.
 	// Called once at startup.
 	Initialize(ctx context.Context) error
