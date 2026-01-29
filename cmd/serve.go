@@ -17,6 +17,7 @@ import (
 	"github.com/kuzerno1/multi-claude-proxy/internal/config"
 	"github.com/kuzerno1/multi-claude-proxy/internal/provider"
 	"github.com/kuzerno1/multi-claude-proxy/internal/provider/antigravity"
+	"github.com/kuzerno1/multi-claude-proxy/internal/provider/copilot"
 	"github.com/kuzerno1/multi-claude-proxy/internal/provider/zai"
 	"github.com/kuzerno1/multi-claude-proxy/internal/utils"
 )
@@ -164,6 +165,25 @@ func runServe(cmd *cobra.Command, args []string) error {
 				}
 			} else {
 				utils.Warn("[Server] Z.AI provider has no models, skipping registration")
+			}
+		}
+	}
+
+	// Initialize Copilot provider (only if Copilot accounts exist)
+	copilotAccountCount := accountManager.GetAccountCountByProvider("copilot")
+	if copilotAccountCount > 0 {
+		copilotProvider := copilot.NewProvider(accountManager)
+		if err := copilotProvider.Initialize(ctx); err != nil {
+			utils.Warn("[Server] Copilot provider init: %v", err)
+		} else {
+			if len(copilotProvider.Models()) > 0 {
+				if err := registry.Register(copilotProvider); err != nil {
+					utils.Warn("[Server] Copilot provider registration: %v", err)
+				} else {
+					utils.Info("[Server] Copilot provider registered with %d models", len(copilotProvider.Models()))
+				}
+			} else {
+				utils.Warn("[Server] Copilot provider has no models, skipping registration")
 			}
 		}
 	}
