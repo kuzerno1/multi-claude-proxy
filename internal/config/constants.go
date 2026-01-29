@@ -149,7 +149,7 @@ func GetAntigravityHeaders() map[string]string {
 
 // getPlatformUserAgent generates a platform-specific User-Agent string.
 func getPlatformUserAgent() string {
-	return fmt.Sprintf("antigravity/1.11.5 %s/%s", runtime.GOOS, runtime.GOARCH)
+	return fmt.Sprintf("antigravity/1.15.8 %s/%s", runtime.GOOS, runtime.GOARCH)
 }
 
 // GetAccountConfigPath returns the path to the account configuration file.
