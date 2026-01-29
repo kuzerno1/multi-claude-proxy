@@ -12,14 +12,15 @@ import (
 	"github.com/kuzerno1/multi-claude-proxy/internal/utils"
 )
 
-// Account represents a single account for a provider (Antigravity or Z.AI).
+// Account represents a single account for a provider (Antigravity, Z.AI, or Copilot).
 type Account struct {
 	Email           string                    `json:"email"`
-	Source          string                    `json:"source"`            // "oauth" or "manual"
-	Provider        string                    `json:"provider,omitempty"` // "antigravity" (default) or "zai"
+	Source          string                    `json:"source"`             // "oauth" or "manual"
+	Provider        string                    `json:"provider,omitempty"` // "antigravity" (default), "zai", or "copilot"
 	RefreshToken    string                    `json:"refreshToken,omitempty"`
 	APIKey          string                    `json:"apiKey,omitempty"`
 	ProjectID       string                    `json:"projectId,omitempty"`
+	AccountType     string                    `json:"accountType,omitempty"` // For Copilot: "individual", "business", "enterprise"
 	AddedAt         *time.Time                `json:"addedAt,omitempty"`
 	IsInvalid       bool                      `json:"isInvalid,omitempty"`
 	InvalidReason   NullableString            `json:"invalidReason,omitempty"`
@@ -144,6 +145,7 @@ func (s *Storage) Save(cfg *ConfigFile) error {
 			Source:          acc.Source,
 			Provider:        acc.Provider,
 			ProjectID:       acc.ProjectID,
+			AccountType:     acc.AccountType,
 			AddedAt:         acc.AddedAt,
 			IsInvalid:       acc.IsInvalid,
 			InvalidReason:   acc.InvalidReason,

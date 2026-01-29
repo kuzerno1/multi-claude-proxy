@@ -15,6 +15,7 @@ import (
 
 	"github.com/kuzerno1/multi-claude-proxy/internal/account"
 	"github.com/kuzerno1/multi-claude-proxy/internal/auth"
+	"github.com/kuzerno1/multi-claude-proxy/internal/provider/copilot"
 	"github.com/kuzerno1/multi-claude-proxy/internal/provider/zai"
 	"github.com/kuzerno1/multi-claude-proxy/internal/utils"
 )
@@ -23,10 +24,11 @@ import (
 var accountsCmd = &cobra.Command{
 	Use:   "accounts",
 	Short: "Manage accounts for providers",
-	Long: `Manage the pool of accounts used by providers (Antigravity and Z.AI).
+	Long: `Manage the pool of accounts used by providers (Antigravity, Z.AI, and Copilot).
 
 Antigravity accounts use OAuth authentication with Google Cloud Code API.
 Z.AI accounts use API keys.
+Copilot accounts use GitHub Device OAuth authentication.
 
 Multiple accounts enable load balancing and failover when rate limits are hit.`,
 }
@@ -41,11 +43,13 @@ If no --provider flag is specified, you will be prompted to select one.
 Providers:
   antigravity - Google Cloud Code API (requires OAuth authentication)
   zai         - Z.AI API (requires API key, entered interactively)
+  copilot     - GitHub Copilot (requires GitHub OAuth authentication)
 
 Examples:
   multi-claude-proxy accounts add                        # Interactive provider selection
   multi-claude-proxy accounts add --provider antigravity # Add Antigravity account (OAuth)
-  multi-claude-proxy accounts add --provider zai         # Add Z.AI account (prompts for key)`,
+  multi-claude-proxy accounts add --provider zai         # Add Z.AI account (prompts for key)
+  multi-claude-proxy accounts add --provider copilot     # Add Copilot account (GitHub OAuth)`,
 	RunE: runAccountsAdd,
 }
 
@@ -101,14 +105,18 @@ func runAccountsAdd(cmd *cobra.Command, args []string) error {
 		utils.Info("Selected provider: %s", provider)
 	}
 
-	if provider != "antigravity" && provider != "zai" {
-		return fmt.Errorf("invalid provider: %s (must be 'antigravity' or 'zai')", provider)
+	if provider != "antigravity" && provider != "zai" && provider != "copilot" {
+		return fmt.Errorf("invalid provider: %s (must be 'antigravity', 'zai', or 'copilot')", provider)
 	}
 
 	utils.Info("Adding new %s account...", provider)
 
 	if provider == "zai" {
 		return addZAIAccount()
+	}
+
+	if provider == "copilot" {
+		return addCopilotAccount()
 	}
 
 	return addAntigravityAccount()
@@ -234,6 +242,151 @@ func addAntigravityAccount() error {
 	}
 
 	return nil
+}
+
+func addCopilotAccount() error {
+	// Select account type
+	accountType, err := selectCopilotAccountType()
+	if err != nil {
+		if err.Error() == "cancelled" {
+			fmt.Println("Account addition cancelled.")
+			return nil
+		}
+		return err
+	}
+
+	utils.Info("Using account type: %s", accountType)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+
+	// Perform GitHub OAuth flow
+	githubToken, err := performGitHubDeviceOAuth(ctx)
+	if err != nil {
+		return err
+	}
+
+	// Verify and get user info
+	user, err := verifyCopilotAccess(ctx, githubToken, accountType)
+	if err != nil {
+		return err
+	}
+
+	// Save the account
+	return saveCopilotAccount(githubToken, user, accountType)
+}
+
+// performGitHubDeviceOAuth initiates and completes the GitHub Device OAuth flow.
+func performGitHubDeviceOAuth(ctx context.Context) (string, error) {
+	utils.Info("Initiating GitHub Device OAuth flow...")
+	deviceCode, err := copilot.GetDeviceCode(ctx)
+	if err != nil {
+		return "", fmt.Errorf("failed to get device code: %w", err)
+	}
+
+	fmt.Println()
+	fmt.Println("Please visit the following URL to authorize:")
+	fmt.Println()
+	fmt.Printf("  %s\n", deviceCode.VerificationURI)
+	fmt.Println()
+	fmt.Printf("Enter this code: %s\n", deviceCode.UserCode)
+	fmt.Println()
+	fmt.Println("Waiting for authorization...")
+
+	githubToken, err := copilot.PollAccessToken(ctx, deviceCode)
+	if err != nil {
+		return "", fmt.Errorf("authorization failed: %w", err)
+	}
+
+	utils.Success("GitHub authorization successful!")
+	return githubToken, nil
+}
+
+// verifyCopilotAccess verifies the user has Copilot access and returns user info.
+func verifyCopilotAccess(ctx context.Context, githubToken, accountType string) (*copilot.GitHubUser, error) {
+	utils.Info("Fetching GitHub user info...")
+	user, err := copilot.GetGitHubUser(ctx, githubToken)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get user info: %w", err)
+	}
+
+	utils.Info("Verifying Copilot access...")
+	_, err = copilot.GetCopilotToken(ctx, githubToken, copilot.AccountType(accountType))
+	if err != nil {
+		return nil, fmt.Errorf("Copilot verification failed: %w", err)
+	}
+
+	utils.Success("Copilot access verified!")
+	return user, nil
+}
+
+// saveCopilotAccount saves the Copilot account to storage.
+func saveCopilotAccount(githubToken string, user *copilot.GitHubUser, accountType string) error {
+	manager := account.NewManager("")
+	if err := manager.Initialize(); err != nil {
+		return fmt.Errorf("failed to initialize account manager: %w", err)
+	}
+
+	email := user.Login
+	if email == "" {
+		hash := sha256.Sum256([]byte(githubToken))
+		shortHash := hex.EncodeToString(hash[:4])
+		email = fmt.Sprintf("copilot-%s", shortHash)
+	}
+
+	newAccount := account.Account{
+		Email:        email,
+		Source:       "oauth",
+		Provider:     "copilot",
+		RefreshToken: githubToken,
+		AccountType:  accountType,
+	}
+
+	if err := manager.AddAccount(newAccount); err != nil {
+		return fmt.Errorf("failed to add account: %w", err)
+	}
+
+	utils.Success("Successfully added Copilot account: %s", email)
+	return nil
+}
+
+func selectCopilotAccountType() (string, error) {
+	accountTypes := []struct {
+		name        string
+		description string
+	}{
+		{"individual", "Personal GitHub Copilot subscription"},
+		{"business", "GitHub Copilot Business (organization)"},
+		{"enterprise", "GitHub Copilot Enterprise"},
+	}
+
+	fmt.Println("Select your Copilot account type:")
+	fmt.Println()
+
+	for i, t := range accountTypes {
+		fmt.Printf("  %d. %s - %s\n", i+1, t.name, t.description)
+	}
+
+	fmt.Println()
+	fmt.Print("Enter account type number (or 'q' to cancel): ")
+
+	reader := bufio.NewReader(os.Stdin)
+	input, err := reader.ReadString('\n')
+	if err != nil {
+		return "", fmt.Errorf("failed to read input: %w", err)
+	}
+
+	input = strings.TrimSpace(input)
+	if input == "q" || input == "" {
+		return "", fmt.Errorf("cancelled")
+	}
+
+	var num int
+	if _, err := fmt.Sscanf(input, "%d", &num); err != nil || num < 1 || num > len(accountTypes) {
+		return "", fmt.Errorf("invalid selection: %s (must be 1-%d)", input, len(accountTypes))
+	}
+
+	return accountTypes[num-1].name, nil
 }
 
 func runAccountsList(cmd *cobra.Command, args []string) error {
@@ -394,6 +547,30 @@ func runAccountsVerify(cmd *cobra.Command, args []string) error {
 			continue
 		}
 
+		if acc.Provider == "copilot" {
+			// Verify Copilot account by getting a Copilot token
+			if acc.RefreshToken == "" {
+				fmt.Printf("\033[31mFAILED\033[0m\n")
+				fmt.Printf("     Error: no GitHub token\n")
+				allValid = false
+				continue
+			}
+
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			_, err := copilot.GetCopilotToken(ctx, acc.RefreshToken, copilot.AccountType(acc.AccountType))
+			cancel()
+
+			if err != nil {
+				fmt.Printf("\033[31mFAILED\033[0m\n")
+				fmt.Printf("     Error: %v\n", err)
+				allValid = false
+				continue
+			}
+
+			fmt.Printf("\033[32mOK\033[0m\n")
+			continue
+		}
+
 		// Antigravity account verification
 		token, err := manager.GetTokenForAccount(&acc)
 		if err != nil {
@@ -437,6 +614,7 @@ func selectProvider() (string, error) {
 	}{
 		{"antigravity", "Google Cloud Code (OAuth authentication)"},
 		{"zai", "Z.AI API (API key authentication)"},
+		{"copilot", "GitHub Copilot (GitHub OAuth authentication)"},
 	}
 
 	fmt.Println("Select a provider to add:")

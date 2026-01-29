@@ -19,6 +19,7 @@ import (
 	merrors "github.com/kuzerno1/multi-claude-proxy/internal/errors"
 	"github.com/kuzerno1/multi-claude-proxy/internal/provider"
 	"github.com/kuzerno1/multi-claude-proxy/internal/provider/antigravity"
+	"github.com/kuzerno1/multi-claude-proxy/internal/provider/copilot"
 	"github.com/kuzerno1/multi-claude-proxy/internal/provider/zai"
 	"github.com/kuzerno1/multi-claude-proxy/internal/utils"
 	"github.com/kuzerno1/multi-claude-proxy/pkg/types"
@@ -965,6 +966,52 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 					}
 				}
 
+			case "copilot":
+				// Copilot accounts use GitHub token -> Copilot token exchange
+				if a.RefreshToken == "" {
+					quotaCancel()
+					baseInfo["status"] = "error"
+					baseInfo["error"] = "no GitHub token"
+					baseInfo["models"] = map[string]interface{}{}
+					mu.Lock()
+					results = append(results, accountDetail{idx: idx, val: baseInfo})
+					mu.Unlock()
+					return
+				}
+
+				// Fetch Copilot usage/quota information
+				usage, err := copilot.GetCopilotUsage(quotaCtx, a.RefreshToken)
+				quotaCancel()
+				if err != nil {
+					baseInfo["status"] = "error"
+					baseInfo["error"] = err.Error()
+					baseInfo["models"] = map[string]interface{}{}
+					mu.Lock()
+					results = append(results, accountDetail{idx: idx, val: baseInfo})
+					mu.Unlock()
+					return
+				}
+
+				// Extract quota information from usage response
+				if usage.QuotaSnapshots.Chat != nil {
+					quotas["chat"] = map[string]interface{}{
+						"remainingFraction": usage.QuotaSnapshots.Chat.PercentRemaining / 100.0,
+						"remaining":         usage.QuotaSnapshots.Chat.Remaining,
+						"entitlement":       usage.QuotaSnapshots.Chat.Entitlement,
+						"unlimited":         usage.QuotaSnapshots.Chat.Unlimited,
+						"resetTime":         nil,
+					}
+				}
+				if usage.QuotaSnapshots.PremiumInteractions != nil {
+					quotas["premium_interactions"] = map[string]interface{}{
+						"remainingFraction": usage.QuotaSnapshots.PremiumInteractions.PercentRemaining / 100.0,
+						"remaining":         usage.QuotaSnapshots.PremiumInteractions.Remaining,
+						"entitlement":       usage.QuotaSnapshots.PremiumInteractions.Entitlement,
+						"unlimited":         usage.QuotaSnapshots.PremiumInteractions.Unlimited,
+						"resetTime":         nil,
+					}
+				}
+
 			default:
 				// Antigravity-style quotas (per model) from Cloud Code.
 				token, err := s.accountManager.GetTokenForAccount(&a)
@@ -1224,6 +1271,63 @@ func (s *Server) handleAccountLimits(w http.ResponseWriter, r *http.Request) {
 				"provider": providerName,
 				"status":   "ok",
 				"models":   quotas,
+			})
+
+		case "copilot":
+			// Copilot accounts use GitHub token -> Copilot token exchange
+			if acc.RefreshToken == "" {
+				quotaCancel()
+				accountLimits = append(accountLimits, map[string]interface{}{
+					"email":    acc.Email,
+					"provider": providerName,
+					"status":   "error",
+					"error":    "no GitHub token",
+					"limits":   map[string]interface{}{},
+				})
+				continue
+			}
+
+			// Fetch Copilot usage/quota information
+			usage, err := copilot.GetCopilotUsage(quotaCtx, acc.RefreshToken)
+			quotaCancel()
+			if err != nil {
+				accountLimits = append(accountLimits, map[string]interface{}{
+					"email":    acc.Email,
+					"provider": providerName,
+					"status":   "error",
+					"error":    err.Error(),
+					"limits":   map[string]interface{}{},
+				})
+				continue
+			}
+
+			// Extract quota information from usage response
+			limits := map[string]interface{}{}
+			if usage.QuotaSnapshots.Chat != nil {
+				limits["chat"] = map[string]interface{}{
+					"remainingFraction": usage.QuotaSnapshots.Chat.PercentRemaining / 100.0,
+					"remaining":         usage.QuotaSnapshots.Chat.Remaining,
+					"entitlement":       usage.QuotaSnapshots.Chat.Entitlement,
+					"unlimited":         usage.QuotaSnapshots.Chat.Unlimited,
+				}
+			}
+			if usage.QuotaSnapshots.PremiumInteractions != nil {
+				limits["premium_interactions"] = map[string]interface{}{
+					"remainingFraction": usage.QuotaSnapshots.PremiumInteractions.PercentRemaining / 100.0,
+					"remaining":         usage.QuotaSnapshots.PremiumInteractions.Remaining,
+					"entitlement":       usage.QuotaSnapshots.PremiumInteractions.Entitlement,
+					"unlimited":         usage.QuotaSnapshots.PremiumInteractions.Unlimited,
+				}
+			}
+			if usage.QuotaResetDate != "" {
+				limits["quotaResetDate"] = usage.QuotaResetDate
+			}
+
+			accountLimits = append(accountLimits, map[string]interface{}{
+				"email":    acc.Email,
+				"provider": providerName,
+				"status":   "ok",
+				"limits":   limits,
 			})
 
 		default:
