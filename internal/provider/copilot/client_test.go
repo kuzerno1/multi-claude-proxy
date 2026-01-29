@@ -79,10 +79,13 @@ func TestClient_HandleErrorResponse_Unauthorized(t *testing.T) {
 	defer server.Close()
 
 	client := NewClientWithBaseURL(server.URL)
-	resp, _ := http.Get(server.URL)
+	resp, err := http.Get(server.URL)
+	if err != nil {
+		t.Fatalf("failed to make request: %v", err)
+	}
 	defer resp.Body.Close()
 
-	err := client.handleErrorResponse(resp)
+	err = client.handleErrorResponse(resp)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -109,10 +112,13 @@ func TestClient_HandleErrorResponse_Forbidden(t *testing.T) {
 	defer server.Close()
 
 	client := NewClientWithBaseURL(server.URL)
-	resp, _ := http.Get(server.URL)
+	resp, err := http.Get(server.URL)
+	if err != nil {
+		t.Fatalf("failed to make request: %v", err)
+	}
 	defer resp.Body.Close()
 
-	err := client.handleErrorResponse(resp)
+	err = client.handleErrorResponse(resp)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -135,10 +141,13 @@ func TestClient_HandleErrorResponse_RateLimit(t *testing.T) {
 	defer server.Close()
 
 	client := NewClientWithBaseURL(server.URL)
-	resp, _ := http.Get(server.URL)
+	resp, err := http.Get(server.URL)
+	if err != nil {
+		t.Fatalf("failed to make request: %v", err)
+	}
 	defer resp.Body.Close()
 
-	err := client.handleErrorResponse(resp)
+	err = client.handleErrorResponse(resp)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -165,10 +174,13 @@ func TestClient_HandleErrorResponse_GenericError(t *testing.T) {
 	defer server.Close()
 
 	client := NewClientWithBaseURL(server.URL)
-	resp, _ := http.Get(server.URL)
+	resp, err := http.Get(server.URL)
+	if err != nil {
+		t.Fatalf("failed to make request: %v", err)
+	}
 	defer resp.Body.Close()
 
-	err := client.handleErrorResponse(resp)
+	err = client.handleErrorResponse(resp)
 	if err == nil {
 		t.Fatal("expected error")
 	}

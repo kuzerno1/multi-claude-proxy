@@ -401,6 +401,12 @@ func (p *Provider) GetStatus(ctx context.Context) (*types.ProviderStatus, error)
 	}, nil
 }
 
+// GenerateImage generates images from text prompts.
+// GitHub Copilot does not support image generation.
+func (p *Provider) GenerateImage(ctx context.Context, req *types.ImageGenerationRequest) (*types.ImageGenerationResponse, error) {
+	return nil, fmt.Errorf("image generation is not supported by GitHub Copilot provider")
+}
+
 // getCopilotToken gets a valid Copilot token for the account.
 // Uses caching to avoid unnecessary token exchanges.
 func (p *Provider) getCopilotToken(ctx context.Context, acc *account.Account) (string, error) {
